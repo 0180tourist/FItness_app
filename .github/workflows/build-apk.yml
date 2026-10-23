@@ -37,8 +37,9 @@ jobs:
           distribution: 'temurin'
           java-version: 17
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
       - name: Install npm dependencies
         run: npm install --legacy-peer-deps
@@ -99,7 +100,7 @@ jobs:
             ### IronLog 모바일 APK 배포판
             - **빌드 번호**: `${{ github.run_number }}`
             - **커밋**: `${{ github.sha }}`
-            - **안내**: 아래 첨부된 `IronLog-debug.apk` 파일을 다운로드하여 안드로이드 기기에 설치하세요.
+            - **안내**: 아래 첨부된 `IronLog-debug.apk` 파일을 스마트폰에서 다운로드하여 설치할 수 있습니다.
           files: release-artifacts/IronLog-debug.apk
           draft: false
           prerelease: false
