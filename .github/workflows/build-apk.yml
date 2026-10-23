@@ -37,20 +37,28 @@ jobs:
           distribution: 'temurin'
           java-version: 17
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install npm dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Build Web App and Prepare Android Project
+      - name: Build Web App and Sync Android
         run: |
           npm run build
+          if [ ! -f "capacitor.config.json" ]; then
+            echo '{"appId":"com.ironlog.app","appName":"IronLog","webDir":"dist"}' > capacitor.config.json
+          fi
           if [ ! -d "android" ]; then
-            echo "Android folder not found in repository. Generating Android native project via Capacitor..."
+            echo "Android directory not found in repository. Initializing Capacitor Android..."
             npx cap add android
           fi
           npx cap sync android
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x android/gradlew
+      - name: Fix gradlew permissions and line endings
+        run: |
+          sed -i -e 's/\r$//' android/gradlew || true
+          chmod +x android/gradlew
 
       - name: Build Android Debug APK
         working-directory: android
