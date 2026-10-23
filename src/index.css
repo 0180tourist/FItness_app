@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-dark: #0B0D12;
+    --card-dark: #141720;
+    --card-surface: #1B202D;
+    --border-dark: #262D3D;
+    --text-primary: #F3F4F6;
+    --text-muted: #9CA3AF;
+    --accent-amber: #F59E0B;
+    --accent-lime: #84CC16;
+  }
+
+  body {
+    background-color: #0B0D12;
+    color: #F3F4F6;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
+  input, textarea, select {
+    user-select: text;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Safe area support for iOS / Android notch and gesture home bar */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.pt-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}

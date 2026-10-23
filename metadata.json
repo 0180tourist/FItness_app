@@ -1,0 +1,6 @@
+{
+  "name": "IronLog - 운동 기록 & 원반 계산기",
+  "description": "스마트 원반 추천 계산기와 세트별 루틴, 3대 PR 갱신 배지, 휴식 타이머를 지원하는 모바일 최적화 웨이트 트레이닝 기록 앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
