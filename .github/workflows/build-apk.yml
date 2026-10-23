@@ -41,8 +41,11 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Install npm dependencies
-        run: npm install --legacy-peer-deps
+      - name: Install npm dependencies & Capacitor CLI
+        run: |
+          npm install --legacy-peer-deps
+          npm install --legacy-peer-deps @capacitor/core @capacitor/android
+          npm install --legacy-peer-deps -D @capacitor/cli
 
       - name: Build Web App and Sync Android
         run: |
