@@ -36,13 +36,18 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: 17
-          cache: 'gradle'
 
       - name: Install npm dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Build Web app and sync Capacitor
-        run: npm run build:android
+      - name: Build Web App and Prepare Android Project
+        run: |
+          npm run build
+          if [ ! -d "android" ]; then
+            echo "Android folder not found in repository. Generating Android native project via Capacitor..."
+            npx cap add android
+          fi
+          npx cap sync android
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
