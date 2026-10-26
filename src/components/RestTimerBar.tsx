@@ -1,7 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { Timer, Play, Pause, RotateCcw, X, Volume2, Plus, Minus, Bell } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Timer, Play, Pause, RotateCcw, X, Plus, Minus, Bell, SlidersHorizontal, Check } from 'lucide-react';
 import { playTimerDoneSound, triggerVibration } from '../utils/audio';
 import { SoundType } from '../types/workout';
+
+export const REST_PRESET_SECONDS = [45, 60, 90, 120, 180] as const;
+
+export function formatRestDurationLabel(sec: number): string {
+  if (sec === 90) return '1.5분';
+  if (sec >= 60 && sec % 60 === 0) return `${sec / 60}분`;
+  return `${sec}초`;
+}
 
 interface RestTimerBarProps {
   initialSeconds?: number;
@@ -9,16 +17,18 @@ interface RestTimerBarProps {
   soundVolume?: number;
   soundType?: SoundType;
   vibrationEnabled: boolean;
+  onUpdateDefaultSeconds?: (seconds: number) => void;
   onDismiss: () => void;
-  triggerKey?: number; // whenever this changes, timer resets and starts automatically
+  triggerKey?: number; // whenever this changes, timer resets to saved defaultRestSeconds and starts automatically
 }
 
 export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   initialSeconds = 90,
   soundEnabled,
-  soundVolume = 0.8,
+  soundVolume = 1.0,
   soundType = 'gym_beep',
   vibrationEnabled,
+  onUpdateDefaultSeconds,
   onDismiss,
   triggerKey
 }) => {
@@ -28,19 +38,37 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
 
-  // When triggerKey changes (e.g. user checked a set), restart timer immediately
+  // Inline custom seconds input state
+  const [isCustomOpen, setIsCustomOpen] = useState<boolean>(false);
+  const [customSecondsInput, setCustomSecondsInput] = useState<string>(String(initialSeconds));
+
+  const prevTriggerKeyRef = useRef<number | undefined>(triggerKey);
+  const prevInitialSecondsRef = useRef<number>(initialSeconds);
+
+  // Sync timer when a new set is checked (triggerKey increments) OR when defaultRestSeconds changes externally
   useEffect(() => {
-    if (triggerKey !== undefined) {
+    const triggerChanged = triggerKey !== prevTriggerKeyRef.current;
+    const defaultChanged = initialSeconds !== prevInitialSecondsRef.current;
+
+    prevTriggerKeyRef.current = triggerKey;
+    prevInitialSecondsRef.current = initialSeconds;
+
+    if (triggerChanged) {
       setRemainingSeconds(initialSeconds);
       setTotalSeconds(initialSeconds);
       setIsRunning(true);
       setIsCompleted(false);
+      setIsCustomOpen(false);
+    } else if (defaultChanged) {
+      setRemainingSeconds(initialSeconds);
+      setTotalSeconds(initialSeconds);
+      setCustomSecondsInput(String(initialSeconds));
     }
   }, [triggerKey, initialSeconds]);
 
   // Main countdown loop
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (isRunning && remainingSeconds > 0) {
       interval = setInterval(() => {
         setRemainingSeconds((prev) => {
@@ -48,7 +76,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
             setIsRunning(false);
             setIsCompleted(true);
             playTimerDoneSound(soundEnabled, soundVolume, soundType);
-            triggerVibration(vibrationEnabled, [200, 100, 200, 100, 300]);
+            triggerVibration(vibrationEnabled);
             return 0;
           }
           return prev - 1;
@@ -60,16 +88,42 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
     };
   }, [isRunning, remainingSeconds, soundEnabled, soundVolume, soundType, vibrationEnabled]);
 
+  // Selecting a preset persists as the new default rest duration AND restarts current timer
   const handlePresetSelect = (sec: number) => {
     setTotalSeconds(sec);
     setRemainingSeconds(sec);
     setIsRunning(true);
     setIsCompleted(false);
+    setIsCustomOpen(false);
+    setCustomSecondsInput(String(sec));
+    onUpdateDefaultSeconds?.(sec);
   };
 
+  // Submitting custom seconds persists as the new default rest duration AND restarts current timer
+  const handleApplyCustomSeconds = () => {
+    const parsed = parseInt(customSecondsInput, 10);
+    if (isNaN(parsed) || parsed <= 0) return;
+    const clamped = Math.max(5, Math.min(900, parsed));
+    setTotalSeconds(clamped);
+    setRemainingSeconds(clamped);
+    setIsRunning(true);
+    setIsCompleted(false);
+    setIsCustomOpen(false);
+    setCustomSecondsInput(String(clamped));
+    onUpdateDefaultSeconds?.(clamped);
+  };
+
+  // +/-15s buttons adjust ONLY the current set's timer without changing saved defaultRestSeconds
   const handleAdjustTime = (delta: number) => {
-    setRemainingSeconds((prev) => Math.max(0, prev + delta));
-    setTotalSeconds((prev) => Math.max(0, prev + delta));
+    setRemainingSeconds((prev) => {
+      const next = Math.max(0, prev + delta);
+      if (next > 0 && isCompleted) {
+        setIsCompleted(false);
+        setIsRunning(true);
+      }
+      return next;
+    });
+    setTotalSeconds((prev) => Math.max(5, prev + delta));
   };
 
   const handleRestart = () => {
@@ -84,16 +138,19 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const progressPercent = totalSeconds > 0 ? ((totalSeconds - remainingSeconds) / totalSeconds) * 100 : 0;
+  const isCustomDefault = !(REST_PRESET_SECONDS as readonly number[]).includes(initialSeconds);
+  const isTemporarilyAdjusted = totalSeconds !== initialSeconds;
+  const progressPercent =
+    totalSeconds > 0 ? ((totalSeconds - remainingSeconds) / totalSeconds) * 100 : 0;
 
   if (isMinimized) {
     return (
       <div className="fixed bottom-20 right-4 z-40 animate-slide-up">
         <button
           onClick={() => setIsMinimized(false)}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-full shadow-2xl border transition-all ${
+          className={`flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-full shadow-2xl border transition-all whitespace-nowrap shrink-0 ${
             isCompleted
-              ? 'bg-amber-500 text-black border-amber-400 font-bold animate-pulse'
+              ? 'bg-amber-500 text-black border-amber-400 font-bold'
               : 'bg-[#141720] text-amber-400 border-amber-500/40'
           }`}
         >
@@ -126,11 +183,11 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
         <div className="p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2">
             {/* Left: Timer Display */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
                   isCompleted
-                    ? 'bg-amber-500 text-black animate-bounce'
+                    ? 'bg-amber-500 text-black'
                     : isRunning
                     ? 'bg-amber-500/15 text-amber-400'
                     : 'bg-[#1B202D] text-gray-400'
@@ -138,40 +195,50 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
               >
                 {isCompleted ? <Bell size={20} /> : <Timer size={20} />}
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-2xl sm:text-3xl font-extrabold font-mono text-white tabular-nums tracking-tight">
                     {formatTime(remainingSeconds)}
                   </span>
                   {isCompleted && (
-                    <span className="text-xs font-bold text-amber-400 animate-pulse">
+                    <span className="text-xs font-bold text-amber-400 whitespace-nowrap">
                       휴식 완료! 세트 시작
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-gray-400 flex items-center gap-1.5">
-                  <span>목표 {totalSeconds}초</span>
-                  <span>·</span>
-                  <span className="text-gray-400">
-                    {soundEnabled ? '소리 ON' : '소리 OFF'}
-                  </span>
+                <div className="text-[11px] text-gray-400 flex items-center gap-1.5 font-mono tabular-nums truncate">
+                  {isTemporarilyAdjusted ? (
+                    <>
+                      <span className="text-amber-300">이번 세트 {totalSeconds}초</span>
+                      <span aria-hidden="true">·</span>
+                      <span>기본 {formatRestDurationLabel(initialSeconds)} 유지</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>기본 {formatRestDurationLabel(initialSeconds)} 유지</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{soundEnabled ? '소리 ON' : '소리 OFF'}</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Right: Quick Controls */}
-            <div className="flex items-center gap-1.5">
+            {/* Right: Quick Controls (+/-15s apply to current set only) */}
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() => handleAdjustTime(-15)}
-                className="w-8 h-8 rounded-lg bg-[#1B202D] hover:bg-[#252B3D] text-gray-300 flex items-center justify-center border border-[#262D3D] active:scale-95 transition-all text-xs"
-                title="-15초"
+                className="w-9 h-9 rounded-lg bg-[#1B202D] hover:bg-[#252B3D] text-gray-300 flex items-center justify-center border border-[#262D3D] active:scale-95 transition-all text-xs"
+                title="이번 세트만 -15초"
+                aria-label="이번 세트만 15초 감소"
               >
                 <Minus size={14} />
               </button>
               <button
                 onClick={() => handleAdjustTime(+15)}
-                className="w-8 h-8 rounded-lg bg-[#1B202D] hover:bg-[#252B3D] text-gray-300 flex items-center justify-center border border-[#262D3D] active:scale-95 transition-all text-xs"
-                title="+15초"
+                className="w-9 h-9 rounded-lg bg-[#1B202D] hover:bg-[#252B3D] text-gray-300 flex items-center justify-center border border-[#262D3D] active:scale-95 transition-all text-xs"
+                title="이번 세트만 +15초"
+                aria-label="이번 세트만 15초 추가"
               >
                 <Plus size={14} />
               </button>
@@ -179,7 +246,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
               {isCompleted ? (
                 <button
                   onClick={handleRestart}
-                  className="px-3 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1 shadow-md active:scale-95 transition-all"
+                  className="px-3 h-9 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1 shadow-md active:scale-95 transition-all whitespace-nowrap shrink-0"
                 >
                   <RotateCcw size={13} />
                   재시작
@@ -200,7 +267,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
 
               <button
                 onClick={onDismiss}
-                className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 flex items-center justify-center transition-colors"
+                className="w-9 h-9 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 flex items-center justify-center transition-colors"
                 aria-label="닫기"
               >
                 <X size={16} />
@@ -208,30 +275,98 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
             </div>
           </div>
 
-          {/* Preset Buttons */}
+          {/* Preset & Custom Seconds Selector Row (Persists to defaultRestSeconds) */}
           <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-[#262D3D]/60 overflow-x-auto">
-            <span className="text-[11px] text-gray-400 shrink-0 mr-1">휴식:</span>
-            {[45, 60, 90, 120, 180].map((sec) => (
-              <button
-                key={sec}
-                onClick={() => handlePresetSelect(sec)}
-                className={`px-2.5 py-1 rounded-md text-xs font-mono font-medium border transition-all shrink-0 ${
-                  totalSeconds === sec && !isCompleted
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                    : 'bg-[#1B202D] text-gray-400 border-[#262D3D] hover:text-gray-200'
-                }`}
-              >
-                {sec >= 60 ? `${sec / 60}분` : `${sec}초`}
-              </button>
-            ))}
+            <span className="text-[11px] text-gray-400 shrink-0 mr-0.5">기본 휴식:</span>
+            {REST_PRESET_SECONDS.map((sec) => {
+              const isSelectedDefault = initialSeconds === sec;
+              return (
+                <button
+                  key={sec}
+                  type="button"
+                  onClick={() => handlePresetSelect(sec)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-mono tabular-nums font-semibold border transition-all whitespace-nowrap shrink-0 active:scale-95 ${
+                    isSelectedDefault
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/60'
+                      : 'bg-[#1B202D] text-gray-400 border-[#262D3D] hover:text-gray-200'
+                  }`}
+                >
+                  {formatRestDurationLabel(sec)}
+                </button>
+              );
+            })}
+
+            {/* Custom Seconds Trigger / Active Custom Badge */}
+            <button
+              type="button"
+              onClick={() => {
+                setCustomSecondsInput(String(initialSeconds));
+                setIsCustomOpen((prev) => !prev);
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-mono tabular-nums font-semibold border transition-all flex items-center gap-1 whitespace-nowrap shrink-0 active:scale-95 ${
+                isCustomDefault || isCustomOpen
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/60'
+                  : 'bg-[#1B202D] text-gray-400 border-[#262D3D] hover:text-gray-200'
+              }`}
+            >
+              <SlidersHorizontal size={11} />
+              <span>{isCustomDefault ? `${initialSeconds}초` : '직접 입력'}</span>
+            </button>
 
             <button
+              type="button"
               onClick={() => setIsMinimized(true)}
-              className="ml-auto text-[11px] text-gray-400 hover:text-gray-200 px-2 py-1"
+              className="ml-auto text-[11px] text-gray-400 hover:text-gray-200 px-2 py-1.5 whitespace-nowrap shrink-0"
             >
               최소화
             </button>
           </div>
+
+          {/* Inline Custom Seconds Form */}
+          {isCustomOpen && (
+            <div className="mt-2.5 pt-2.5 border-t border-[#262D3D]/60 flex items-center gap-2 animate-fade-in">
+              <span className="text-xs text-gray-300 font-medium whitespace-nowrap shrink-0">
+                초 직접 설정:
+              </span>
+              <div className="relative flex-1 max-w-[140px]">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={5}
+                  max={900}
+                  step={5}
+                  placeholder="예: 70"
+                  value={customSecondsInput}
+                  onChange={(e) => setCustomSecondsInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleApplyCustomSeconds();
+                    }
+                  }}
+                  autoFocus
+                  className="w-full h-9 pl-3 pr-8 bg-[#0B0D12] border border-amber-500/60 rounded-lg text-white font-mono text-xs font-bold tabular-nums focus:outline-none focus:border-amber-400"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 font-mono">
+                  초
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleApplyCustomSeconds}
+                className="h-9 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1 active:scale-95 transition-all whitespace-nowrap shrink-0"
+              >
+                <Check size={13} strokeWidth={2.5} />
+                유지 적용
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCustomOpen(false)}
+                className="h-9 px-2.5 rounded-lg bg-[#1B202D] text-gray-400 hover:text-white text-xs whitespace-nowrap shrink-0"
+              >
+                취소
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

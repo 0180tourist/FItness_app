@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   SlidersHorizontal, Scale, Volume2, VolumeX, Vibrate, Download, Upload, 
   RotateCcw, Plus, Trash2, Check, CheckCircle2, ShieldCheck, 
-  Edit2, FolderPlus, Layers, Play 
+  Edit2, FolderPlus, Layers, Play, Timer 
 } from 'lucide-react';
 import { AppSettings, DailyWorkout, PlateInventoryItem, PlatePreset, SoundType } from '../types/workout';
 import { getPlateColor } from '../utils/plateCalculator';
 import { exportCSV, exportAppJSON } from '../utils/csvExport';
 import { playTimerDoneSound, triggerVibration, SOUND_TYPE_LABELS } from '../utils/audio';
+import { REST_PRESET_SECONDS, formatRestDurationLabel } from './RestTimerBar';
 
 interface SettingsTabProps {
   settings: AppSettings;
@@ -27,7 +28,15 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   onResetSeedData
 }) => {
   const [customPlateWeight, setCustomPlateWeight] = useState('');
+  const [customRestSecondsInput, setCustomRestSecondsInput] = useState(
+    String(settings.defaultRestSeconds)
+  );
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    setCustomRestSecondsInput(String(settings.defaultRestSeconds));
+  }, [settings.defaultRestSeconds]);
 
   // Preset management modal / prompt states
   const [isAddingPreset, setIsAddingPreset] = useState(false);
@@ -165,36 +174,64 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     updateActivePlates(updated);
   };
 
-  // Export CSV Handler
+  // Export CSV Handler (opens Android Share Sheet on APK)
   const handleExportCSV = async () => {
-    const all = [...workoutHistory];
-    if (todayWorkout && todayWorkout.exercises.length > 0) {
-      if (!all.some(w => w.date === todayWorkout.date)) {
-        all.push(todayWorkout);
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const all = [...workoutHistory];
+      if (todayWorkout && todayWorkout.exercises.length > 0) {
+        if (!all.some((w) => w.date === todayWorkout.date)) {
+          all.push(todayWorkout);
+        }
       }
-    }
-    const res = await exportCSV(all, settings.unit);
-    if (res.success) {
-      setExportFeedback(res.shared ? '공유 시트가 열렸습니다.' : 'CSV 파일이 다운로드되었습니다.');
-      setTimeout(() => setExportFeedback(null), 3000);
+      const res = await exportCSV(all, settings.unit);
+      if (res.success) {
+        setExportFeedback(
+          res.shared
+            ? '공유 창이 열렸습니다. 저장할 폴더나 앱을 선택하세요.'
+            : 'CSV 파일이 다운로드되었습니다.'
+        );
+        setTimeout(() => setExportFeedback(null), 3200);
+      } else if (!res.cancelled && res.error) {
+        setExportFeedback('CSV 내보내기에 실패했습니다. 다시 시도해 주세요.');
+        setTimeout(() => setExportFeedback(null), 3200);
+      }
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  // Export JSON Backup
-  const handleExportJSON = () => {
-    const all = [...workoutHistory];
-    if (todayWorkout && todayWorkout.exercises.length > 0) {
-      if (!all.some(w => w.date === todayWorkout.date)) {
-        all.push(todayWorkout);
+  // Export JSON Backup (opens Android Share Sheet on APK)
+  const handleExportJSON = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const all = [...workoutHistory];
+      if (todayWorkout && todayWorkout.exercises.length > 0) {
+        if (!all.some((w) => w.date === todayWorkout.date)) {
+          all.push(todayWorkout);
+        }
       }
+      const res = await exportAppJSON({
+        workouts: all,
+        settings,
+        exportedAt: new Date().toISOString()
+      });
+      if (res.success) {
+        setExportFeedback(
+          res.shared
+            ? '공유 창이 열렸습니다. 백업 파일을 저장할 위치나 앱을 선택하세요.'
+            : '전체 백업 JSON 파일이 다운로드되었습니다.'
+        );
+        setTimeout(() => setExportFeedback(null), 3200);
+      } else if (!res.cancelled && res.error) {
+        setExportFeedback('백업 파일 내보내기에 실패했습니다. 다시 시도해 주세요.');
+        setTimeout(() => setExportFeedback(null), 3200);
+      }
+    } finally {
+      setIsExporting(false);
     }
-    exportAppJSON({
-      workouts: all,
-      settings,
-      exportedAt: new Date().toISOString()
-    });
-    setExportFeedback('전체 백업 JSON 파일이 다운로드되었습니다.');
-    setTimeout(() => setExportFeedback(null), 3000);
   };
 
   // Import JSON Backup
@@ -521,8 +558,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </div>
       </div>
 
-      {/* 3. Audio & Vibration Alert Settings */}
-      {/* 3. Audio & Vibration Alert Settings */}
+      {/* 3. Rest Timer, High-Output Audio & Native Vibration Settings */}
       <div className="bg-[#141720] rounded-2xl p-4 sm:p-5 border border-[#262D3D] shadow-lg space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -530,13 +566,93 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               <Volume2 size={18} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">휴식 타이머 알림음 & 진동</h3>
-              <p className="text-xs text-gray-400">알림음 종류, 음량 크기 및 햅틱 진동 조절</p>
+              <h3 className="text-base font-bold text-white">휴식 타이머 시간 · 알림음 & 진동</h3>
+              <p className="text-xs text-gray-400">기본 휴식 시간 유지, 고출력 알림음 및 타이머 종료 진동 설정</p>
             </div>
           </div>
         </div>
 
         <div className="space-y-3">
+          {/* Default Rest Duration Persistence Control */}
+          <div className="p-3.5 rounded-xl bg-[#1B202D] border border-[#262D3D] space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Timer size={17} className="text-amber-400 shrink-0" />
+                <div>
+                  <span className="text-xs font-bold text-white block">기본 휴식 타이머 시간</span>
+                  <span className="text-[11px] text-gray-400">
+                    세트 완료 체크 시 자동 적용되며 변경한 값이 계속 유지됩니다
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs font-mono font-bold text-amber-400 tabular-nums shrink-0">
+                현재 {formatRestDurationLabel(settings.defaultRestSeconds)} ({settings.defaultRestSeconds}초)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {REST_PRESET_SECONDS.map((sec) => (
+                <button
+                  key={sec}
+                  type="button"
+                  onClick={() => {
+                    setCustomRestSecondsInput(String(sec));
+                    onUpdateSettings({ ...settings, defaultRestSeconds: sec });
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono tabular-nums font-bold border transition-all whitespace-nowrap shrink-0 active:scale-95 ${
+                    settings.defaultRestSeconds === sec
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                      : 'bg-[#141720] text-gray-400 border-[#262D3D] hover:text-white'
+                  }`}
+                >
+                  {formatRestDurationLabel(sec)}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={5}
+                  max={900}
+                  step={5}
+                  placeholder="직접 초 입력 (예: 70)"
+                  value={customRestSecondsInput}
+                  onChange={(e) => setCustomRestSecondsInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const parsed = parseInt(customRestSecondsInput, 10);
+                      if (!isNaN(parsed) && parsed > 0) {
+                        const clamped = Math.max(5, Math.min(900, parsed));
+                        setCustomRestSecondsInput(String(clamped));
+                        onUpdateSettings({ ...settings, defaultRestSeconds: clamped });
+                      }
+                    }
+                  }}
+                  className="w-full h-10 pl-3.5 pr-9 bg-[#0B0D12] border border-[#262D3D] rounded-xl text-white font-mono text-xs font-bold tabular-nums focus:outline-none focus:border-amber-500"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono">
+                  초
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const parsed = parseInt(customRestSecondsInput, 10);
+                  if (isNaN(parsed) || parsed <= 0) return;
+                  const clamped = Math.max(5, Math.min(900, parsed));
+                  setCustomRestSecondsInput(String(clamped));
+                  onUpdateSettings({ ...settings, defaultRestSeconds: clamped });
+                }}
+                className="h-10 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold active:scale-95 transition-all whitespace-nowrap shrink-0"
+              >
+                초 설정 유지
+              </button>
+            </div>
+          </div>
+
           {/* Main Sound Toggle & Test */}
           <div className="p-3.5 rounded-xl bg-[#1B202D] border border-[#262D3D] flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -601,8 +717,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   {[
                     { label: '30% (조용히)', val: 0.3 },
                     { label: '60% (보통)', val: 0.6 },
-                    { label: '80% (헬스장)', val: 0.8 },
-                    { label: '100% (최대)', val: 1.0 }
+                    { label: '80% (크게)', val: 0.8 },
+                    { label: '100% (기본 권장)', val: 1.0 }
                   ].map((p) => (
                     <button
                       key={p.val}
@@ -682,19 +798,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           )}
 
           {/* Vibration Settings */}
-          <div className="p-3.5 rounded-xl bg-[#1B202D] border border-[#262D3D] flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <Vibrate size={18} className="text-lime-400" />
-              <div>
-                <span className="text-xs font-bold text-white block">완료 햅틱 진동</span>
-                <span className="text-[11px] text-gray-400">모바일 기기 3단 진동 패턴 피드백</span>
+          <div className="p-3.5 rounded-xl bg-[#1B202D] border border-[#262D3D] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Vibrate size={18} className="text-lime-400 shrink-0" />
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-white block">휴식 종료 강한 연속 진동</span>
+                <span className="text-[11px] text-gray-400">
+                  휴식 타이머 종료 시에만 강한 연속 진동 알림 작동
+                </span>
               </div>
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={() => triggerVibration(true)}
-                className="px-3 py-1.5 text-xs font-semibold text-gray-200 bg-[#141720] hover:text-white hover:bg-[#202534] border border-[#262D3D] rounded-lg active:scale-95 transition-all"
+                className="px-3 py-1.5 text-xs font-semibold text-gray-200 bg-[#141720] hover:text-white hover:bg-[#202534] border border-[#262D3D] rounded-lg active:scale-95 transition-all whitespace-nowrap"
               >
                 진동 테스트
               </button>
@@ -717,35 +835,39 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </div>
           <div>
             <h3 className="text-base font-bold text-white">데이터 내보내기 & 백업</h3>
-            <p className="text-xs text-gray-400">CSV 스프레드시트 공유 및 전체 JSON 데이터 복원</p>
+            <p className="text-xs text-gray-400">안드로이드 공유 창(내 파일 폴더·클라우드 선택) 및 전체 백업 복원</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {/* CSV Export */}
           <button
+            type="button"
+            disabled={isExporting}
             onClick={handleExportCSV}
-            className="p-3.5 rounded-xl bg-[#1B202D] hover:bg-[#252B3D] border border-[#262D3D] text-left flex items-start gap-3 active:scale-98 transition-all"
+            className="p-3.5 rounded-xl bg-[#1B202D] hover:bg-[#252B3D] disabled:opacity-50 border border-[#262D3D] text-left flex items-start gap-3 active:scale-98 transition-all"
           >
             <Download size={18} className="text-lime-400 shrink-0 mt-0.5" />
             <div>
-              <div className="text-xs font-bold text-white">CSV 내보내기</div>
+              <div className="text-xs font-bold text-white">CSV 내보내기 (공유/저장)</div>
               <div className="text-[11px] text-gray-400 mt-0.5">
-                date, exercise, set_no, weight, reps, volume 컬럼 규격 공유
+                공유 창을 열어 내 파일(Download 등)이나 원하는 앱에 저장
               </div>
             </div>
           </button>
 
           {/* JSON Export */}
           <button
+            type="button"
+            disabled={isExporting}
             onClick={handleExportJSON}
-            className="p-3.5 rounded-xl bg-[#1B202D] hover:bg-[#252B3D] border border-[#262D3D] text-left flex items-start gap-3 active:scale-98 transition-all"
+            className="p-3.5 rounded-xl bg-[#1B202D] hover:bg-[#252B3D] disabled:opacity-50 border border-[#262D3D] text-left flex items-start gap-3 active:scale-98 transition-all"
           >
             <ShieldCheck size={18} className="text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <div className="text-xs font-bold text-white">JSON 전체 백업</div>
+              <div className="text-xs font-bold text-white">JSON 전체 백업 (공유/저장)</div>
               <div className="text-[11px] text-gray-400 mt-0.5">
-                모든 세션 기록, 커스텀 프리셋 및 설정 정보를 파일로 저장
+                모든 세션 기록·프리셋·설정을 원하는 폴더나 클라우드에 보관
               </div>
             </div>
           </button>

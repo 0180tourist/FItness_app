@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { DailyWorkout, WorkoutExercise, WorkoutSet, PRType, RoutineTemplate } from '../types/workout';
 import { evaluateSetPR } from '../utils/prEngine';
-import { playSetCompleteSound, triggerVibration } from '../utils/audio';
+import { playSetCompleteSound } from '../utils/audio';
 import { AiRoutineImportModal } from './AiRoutineImportModal';
 
 interface TodayTabProps {
@@ -31,7 +31,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   exerciseList,
   templates,
   soundEnabled,
-  soundVolume = 0.8,
+  soundVolume = 1.0,
   vibrationEnabled,
   onUpdateWorkout,
   onRegisterExercise,
@@ -91,10 +91,9 @@ export const TodayTab: React.FC<TodayTabProps> = ({
 
         const newSet = { ...set, ...updates };
 
-        // If completion was toggled to true, evaluate PRs and trigger rest timer
+        // If completion was toggled to true, evaluate PRs and trigger rest timer (sound only, vibration reserved for rest timer completion)
         if (updates.completed === true && !set.completed) {
           playSetCompleteSound(soundEnabled, soundVolume);
-          triggerVibration(vibrationEnabled, [80, 50, 100]);
           onTriggerRestTimer();
 
           const targetW = newSet.actualWeight !== undefined ? newSet.actualWeight : newSet.targetWeight;

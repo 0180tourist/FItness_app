@@ -297,6 +297,9 @@ export default function App() {
           soundVolume={settings.soundVolume}
           soundType={settings.soundType}
           vibrationEnabled={settings.vibrationEnabled}
+          onUpdateDefaultSeconds={(sec) =>
+            handleUpdateSettings({ ...settings, defaultRestSeconds: sec })
+          }
           onDismiss={() => setIsRestTimerActive(false)}
           triggerKey={restTimerTriggerKey}
         />

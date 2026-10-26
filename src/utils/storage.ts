@@ -171,7 +171,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   barWeight: 20,
   unit: 'kg',
   soundEnabled: true,
-  soundVolume: 0.8,
+  soundVolume: 1.0,
   soundType: 'gym_beep',
   vibrationEnabled: true,
   defaultRestSeconds: 90,
@@ -179,6 +179,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   presets: DEFAULT_PRESETS,
   plates: DEFAULT_PRESETS[0].plates
 };
+
+const VOLUME_V2_MIGRATION_KEY = 'ironlog_volume_v2_migrated';
 
 /**
  * Returns formatted today date string YYYY-MM-DD in local time
@@ -201,18 +203,42 @@ export function loadSettings(): AppSettings {
       if (!presets || !Array.isArray(presets) || presets.length === 0) {
         presets = DEFAULT_PRESETS;
       }
-      let activePresetId = parsed.activePresetId || presets[0].id;
-      let activePreset = presets.find((p: PlatePreset) => p.id === activePresetId) || presets[0];
+      const activePresetId = parsed.activePresetId || presets[0].id;
+      const activePreset = presets.find((p: PlatePreset) => p.id === activePresetId) || presets[0];
 
-      return {
+      // One-time migration: boost legacy default 0.8 volume up to 1.0 (100%)
+      let resolvedVolume = typeof parsed.soundVolume === 'number' ? parsed.soundVolume : 1.0;
+      const migrated = localStorage.getItem(VOLUME_V2_MIGRATION_KEY);
+      if (!migrated) {
+        if (parsed.soundVolume === undefined || Math.abs(parsed.soundVolume - 0.8) < 0.001) {
+          resolvedVolume = 1.0;
+        }
+        localStorage.setItem(VOLUME_V2_MIGRATION_KEY, '1');
+      }
+
+      const resolvedRestSeconds =
+        typeof parsed.defaultRestSeconds === 'number' && parsed.defaultRestSeconds >= 5
+          ? Math.round(parsed.defaultRestSeconds)
+          : 90;
+
+      const loaded: AppSettings = {
         ...DEFAULT_SETTINGS,
         ...parsed,
-        soundVolume: parsed.soundVolume !== undefined ? parsed.soundVolume : 0.8,
+        soundVolume: resolvedVolume,
         soundType: parsed.soundType || 'gym_beep',
+        defaultRestSeconds: resolvedRestSeconds,
         presets,
         activePresetId: activePreset.id,
         plates: activePreset.plates
       };
+
+      if (!migrated) {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(loaded));
+      }
+
+      return loaded;
+    } else {
+      localStorage.setItem(VOLUME_V2_MIGRATION_KEY, '1');
     }
   } catch (err) {
     console.warn('Failed to load settings:', err);

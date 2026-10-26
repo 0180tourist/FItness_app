@@ -1,0 +1,24 @@
+{
+  "short_name": "IronLog",
+  "name": "IronLog - 운동 기록 & 원반 계산기",
+  "icons": [
+    {
+      "src": "/icon-192.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0B0D12",
+  "theme_color": "#0B0D12",
+  "display": "standalone",
+  "orientation": "portrait",
+  "description": "스마트 원반 추천 계산기와 세트별 루틴, 3대 PR 갱신 배지, 휴식 타이머를 지원하는 웨이트 트레이닝 기록 앱"
+}
